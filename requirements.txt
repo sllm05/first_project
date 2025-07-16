@@ -1,0 +1,12 @@
+pandas
+json
+os
+openai
+dotenv
+random
+streamlit
+langchain_upstage
+langchain_chroma
+langchain_community
+langchain
+langchain_core
