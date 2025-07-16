@@ -4,7 +4,6 @@ import os
 import pandas as pd
 import json
 
-
 def load_environment_and_client():
     """
     .env 파일에서 환경 변수를 로드하고 Upstage API 클라이언트를 초기화합니다.
@@ -39,3 +38,4 @@ def load_emotion_data():
     return df[['감정_대분류', '사람문장1', '시스템문장1', '사람문장2', '시스템문장2']]
 
 
+# 미작성
