@@ -4,6 +4,7 @@ import os
 import pandas as pd
 import json
 
+
 def load_environment_and_client():
     """
     .env 파일에서 환경 변수를 로드하고 Upstage API 클라이언트를 초기화합니다.
