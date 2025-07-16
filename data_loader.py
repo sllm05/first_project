@@ -24,7 +24,7 @@ def load_emotion_data():
     지정된 경로에서 감성 대화 말뭉치 JSON 파일을 로드하여 Pandas DataFrame으로 반환합니다.
     """
     # 사용자 환경에 맞게 파일 경로를 수정해야 할 수 있습니다.
-    file_path = r"C:\Users\DJ\Documents\pythonProject\project\data\감성대화말뭉치(최종데이터)_Training.json"
+    file_path = r"C:\Users\DJ\Documents\pythonProject\project\data\감성대화말뭉치_최종데이터_Training.json"
     
     try:
         with open(file_path, "r", encoding='utf-8') as f:
@@ -36,3 +36,14 @@ def load_emotion_data():
     
     # 필요한 컬럼만 선택하여 반환
     return df[['감정_대분류', '사람문장1', '시스템문장1', '사람문장2', '시스템문장2']]
+
+
+
+2323 
+
+3
+23
+32
+23
+3
+3
