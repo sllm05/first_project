@@ -1,18 +1,27 @@
-# 기능
 import random
 import os
 from langchain_upstage import UpstageEmbeddings, ChatUpstage
-from langchain_chroma import Chroma
-from langchain_community.document_loaders import PyPDFLoader
-from langchain.chains import create_history_aware_retriever, create_retrieval_chain
+from langchain.chains import create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.prompts import ChatPromptTemplate
+from datetime import datetime
+
+# PDF 생성을 위한 라이브러리 추가
+# 설치가 필요합니다: pip install reportlab
+from reportlab.pdfgen import canvas
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfbase import pdfmetrics
+from reportlab.lib.pagesizes import letter
 
 class EmotionBasedPsychotherapy:
-    def __init__(self, client):
+    # --- __init__ (생성자) 수정 ---
+    def __init__(self, client, emotion_df, md_retriever):
         self.client = client
+        self.emotion_df = emotion_df  # 감성대화 데이터 추가
+        self.md_retriever = md_retriever  # Markdown Retriever 추가
         self.score = 0
         self.question_index = 0
+        self.chat_history = [] # 대화 기록을 저장할 리스트
 
         self.all_questions = [
             "최근 2주 동안, 일상적인 일에 대한 흥미나 즐거움이 거의 없었다.",
@@ -34,7 +43,13 @@ class EmotionBasedPsychotherapy:
             '정상': ['기쁨']
         }
         self.emotion_scores = {'위험': 3, '보통': 1, '정상': 0}
-        self.rag_chain = None
+
+        # --- 기존 RAG 체인 삭제, 정보 검색 체인으로 대체 ---
+        qa_system_prompt = """당신은 우울증 전문가입니다. 검색된 컨텍스트 정보를 사용하여 질문에 답변하세요. 답변은 한국어로, 세 문장 이내로 간결하게 유지하세요.
+        {context}"""
+        qa_prompt = ChatPromptTemplate.from_messages([("system", qa_system_prompt), ("human", "{input}")])
+        Youtube_chain = create_stuff_documents_chain(ChatUpstage(model="solar-1-mini"), qa_prompt)
+        self.rag_chain = create_retrieval_chain(self.md_retriever, Youtube_chain)
 
     def get_emotion_level(self, emotion):
         for level, emotions in self.emotion_levels.items():
@@ -45,28 +60,36 @@ class EmotionBasedPsychotherapy:
     def _call_solar_for_emotion(self, text):
         emotion_categories = ['불안', '분노', '슬픔', '상처', '당황', '기쁨']
         prompt_messages = [
-            {
-                "role": "system",
-                "content": f"너는 문장의 감정을 분석하는 전문가야. 다음 문장의 감정을 {emotion_categories} 중에서 하나만 골라. 다른 말은 하지마."
-            },
+            {"role": "system", "content": f"너는 문장의 감정을 분석하는 전문가야. 다음 문장의 감정을 {emotion_categories} 중에서 하나만 골라. 다른 말은 하지마."},
             {"role": "user", "content": text}
         ]
         try:
-            response = self.client.chat.completions.create(
-                model="solar-mini", messages=prompt_messages, temperature=0.0, max_tokens=10
-            )
+            response = self.client.chat.completions.create(model="solar-mini", messages=prompt_messages, temperature=0.0, max_tokens=10)
             content = response.choices[0].message.content.strip()
             return content if content in emotion_categories else '상처'
         except Exception as e:
             print(f"API 호출 오류: {e}")
             return '상처'
 
+    # --- generate_empathetic_response_and_ask_question 수정 ---
     def generate_empathetic_response_and_ask_question(self, user_input):
         if self.is_test_finished():
             return None
 
+        # 대화 기록 저장
+        self.chat_history.append({"role": "user", "content": user_input})
+
         next_question = self.screening_questions[self.question_index]
-        system_prompt = f"""너는 따뜻한 심리 상담사이다. 사용자의 이전 답변에 짧게 공감한 후, 자연스럽게 다음 질문으로 대화를 이끌어간다.
+
+        # 감성대화 말뭉치에서 예시 추출 (Few-shot Prompting)
+        samples = self.emotion_df.sample(n=2)
+        few_shot_examples = ""
+        for index, row in samples.iterrows():
+            few_shot_examples += f"\n#대화 예시 {index+1}\n- 사용자: {row['사람문장1']}\n- 상담사: {row['시스템문장1']}"
+
+        system_prompt = f"""너는 따뜻한 심리 상담사이다. 아래 대화 예시를 참고하여 사용자의 말에 자연스럽게 공감한 후, 다음 질문으로 대화를 이끌어간다.
+
+{few_shot_examples}
 
 # 지시사항
 1. 사용자의 말에 적극적으로 공감한다.
@@ -80,12 +103,14 @@ class EmotionBasedPsychotherapy:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_input}
         ]
-        
-        # Streamlit에서는 스트리밍 대신 한번에 응답을 받아 반환
-        response = self.client.chat.completions.create(
-            model="solar-pro", messages=messages, temperature=0.7
-        )
-        return response.choices[0].message.content
+
+        response = self.client.chat.completions.create(model="solar-pro", messages=messages, temperature=0.7)
+        bot_response = response.choices[0].message.content
+
+        # 챗봇의 답변도 대화 기록에 저장
+        self.chat_history.append({"role": "assistant", "content": bot_response})
+
+        return bot_response
 
     def process_and_score_answer(self, answer):
         emotion = self._call_solar_for_emotion(answer)
@@ -93,8 +118,6 @@ class EmotionBasedPsychotherapy:
         points = self.emotion_scores.get(level, 0)
         self.score += points
         self.question_index += 1
-        
-        # 분석 결과를 문자열로 반환
         return f"감정: {emotion}({level}), {points}점 추가 (현재 총점: {self.score}점)"
 
     def is_test_finished(self):
@@ -109,43 +132,89 @@ class EmotionBasedPsychotherapy:
         else:
             result_text += "😄 **진단 결과: 정상** 😄\n"
         return result_text
-    
-    # RAG 체인 설정 함수 추가
-    def setup_rag_chain(self, file_path):
-        loader = PyPDFLoader(file_path)
-        pages = loader.load_and_split()
-        
-        vectorstore = Chroma.from_documents(pages, UpstageEmbeddings(model="solar-embedding-1-large"))
-        retriever = vectorstore.as_retriever(k=2)
-        
-        chat = ChatUpstage(model="solar-1-mini")
 
-        contextualize_q_system_prompt = """이전 대화 내용과 최신 사용자 질문이 있을 때, 이 질문이 이전 대화 내용과 관련이 있을 수 있습니다. 이런 경우, 대화 내용을 알 필요 없이 독립적으로 이해할 수 있는 질문으로 바꾸세요. 질문에 답할 필요는 없고, 필요하다면 그저 다시 구성하거나 그대로 두세요."""
-        contextualize_q_prompt = ChatPromptTemplate.from_messages(
-            [
-                ("system", contextualize_q_system_prompt),
-                MessagesPlaceholder("chat_history"),
-                ("human", "{input}"),
-            ]
-        )
-        history_aware_retriever = create_history_aware_retriever(chat, retriever, contextualize_q_prompt)
+    # --- 기존 RAG 함수들을 대체할 새로운 함수들 ---
 
-        qa_system_prompt = """당신은 질문에 답변하는 유용한 어시스턴트입니다. 검색된 컨텍스트를 사용하여 질문에 답변하세요. 답을 모른다면 모른다고 말하세요. 답변은 세 문장 이내로 간결하게 유지하세요.
-        {context}"""
-        qa_prompt = ChatPromptTemplate.from_messages(
-            [
-                ("system", qa_system_prompt),
-                MessagesPlaceholder("chat_history"),
-                ("human", "{input}"),
-            ]
-        )
-        Youtube_chain = create_stuff_documents_chain(chat, qa_prompt)
-        self.rag_chain = create_retrieval_chain(history_aware_retriever, Youtube_chain)
-        
-    # RAG 답변 생성 함수 추가
-    def get_rag_answer(self, user_input, chat_history):
+    def get_info_from_md(self, user_input):
+        """depression.md 파일에서 정보를 검색하여 답변하는 함수"""
         if not self.rag_chain:
-            return "먼저 PDF 파일을 업로드하여 RAG 체인을 설정해주세요.", None
+            return "정보 검색 기능이 준비되지 않았습니다."
 
-        result = self.rag_chain.invoke({"input": user_input, "chat_history": chat_history})
-        return result["answer"], result["context"]
+        result = self.rag_chain.invoke({"input": user_input})
+        return result["answer"]
+
+    # --- summarize_for_report 수정 ---
+    def summarize_for_report(self, uploaded_pdf_text=None):
+        """대화 내용과 업로드된 PDF를 바탕으로 보고서 내용을 요약/분석하는 함수"""
+
+        conversation_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in self.chat_history])
+
+        # 참고 자료 섹션 구성
+        reference_material = f"--- 대화 내용 ---\n{conversation_text}"
+        if uploaded_pdf_text:
+            reference_material += f"\n\n--- 사용자가 업로드한 참고 문서 내용 ---\n{uploaded_pdf_text}"
+
+        prompt = f"""
+        당신은 정신과 전문의입니다. 아래 참고 자료(대화 내용, 사용자 제출 문서)를 종합적으로 검토하여 '우울증 자가 진단서'의 각 항목을 채워주세요.
+        결과는 각 항목에 대한 설명만 간결하게 작성하고, 다른 말은 덧붙이지 마세요.
+        각 항목은 "항목명: 내용" 형식으로 출력해주세요.
+
+        - 환자 정보: (예: 특정 정보 없음, 온라인 사용자)
+        - 주된 증상: (예: 불면, 불안, 우울감 등 대화에서 나타난 핵심 증상 요약)
+        - 진단명(추정): (예: 우울증 의심, 스트레스 반응 등)
+        - 조치결과(권장사항): (예: 전문가 상담 권유, 스트레스 관리 필요 등)
+
+        {reference_material}
+        """
+
+        response = self.client.chat.completions.create(
+            model="solar-pro",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3
+        )
+
+        summary_text = response.choices[0].message.content
+        report_data = {}
+        for line in summary_text.split('\n'):
+            if ':' in line:
+                key, value = line.split(':', 1)
+                report_data[key.strip()] = value.strip()
+
+        return report_data
+
+    def create_report_pdf(self, report_data, output_path):
+        """분석된 데이터를 바탕으로 새로운 PDF 보고서를 생성하는 함수"""
+        try:
+            # 윈도우 환경에 맞는 나눔고딕 폰트 경로. 다른 환경에서는 경로 수정 필요.
+            # 폰트 파일이 없다면 별도 설치가 필요합니다.
+            font_path = "font/NanumGothic.ttf"
+            pdfmetrics.registerFont(TTFont('NanumGothic', font_path))
+        except Exception as e:
+            print(f"폰트 파일을 찾을 수 없습니다: {e}. 기본 폰트로 생성됩니다.")
+            # 폰트가 없을 경우를 대비한 예외 처리도 가능
+
+        c = canvas.Canvas(output_path, pagesize=letter)
+        width, height = letter
+
+        # 제목
+        c.setFont('NanumGothic', 18)
+        c.drawCentredString(width / 2.0, height - 50, "우울증 자가 진단 결과서")
+
+        # 내용
+        c.setFont('NanumGothic', 12)
+        text_y = height - 100
+
+        # 기본 정보 추가
+        report_data['진단일자'] = datetime.now().strftime("%Y-%m-%d")
+        report_data['총점'] = f"{self.score} 점"
+
+        # 데이터 순서 정의
+        display_order = ['진단일자', '환자 정보', '총점', '주된 증상', '진단명(추정)', '조치결과(권장사항)']
+
+        for key in display_order:
+            value = report_data.get(key, "내용 없음")
+            c.drawString(100, text_y, f"■ {key}: {value}")
+            text_y -= 30 # 줄 간격
+
+        c.save()
+        return True
