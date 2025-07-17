@@ -12,20 +12,23 @@ from langchain_upstage import UpstageEmbeddings
 from langchain_chroma import Chroma
 
 
-def load_environment_and_client():
-    """
-    .env 파일에서 환경 변수를 로드하고 Upstage API 클라이언트를 초기화합니다.
-    """
+# def load_environment_and_client():
+#     """
+#     .env 파일에서 환경 변수를 로드하고 Upstage API 클라이언트를 초기화합니다.
+#     """
+#     load_dotenv()
+
+#     api_key = os.getenv("UPSTAGE_API_KEY")
+
+#     if not api_key:
+#         raise ValueError("UPSTAGE_API_KEY 환경변수가 설정되지 않았습니다. .env 파일을 확인해주세요.")
+
+#     client = OpenAI(api_key=api_key, base_url="https://api.upstage.ai/v1")
+
+#     return client
+
+def load_env():
     load_dotenv()
-
-    api_key = os.getenv("UPSTAGE_API_KEY")
-
-    if not api_key:
-        raise ValueError("UPSTAGE_API_KEY 환경변수가 설정되지 않았습니다. .env 파일을 확인해주세요.")
-
-    client = OpenAI(api_key=api_key, base_url="https://api.upstage.ai/v1")
-
-    return client
 
 def load_emotion_data():
     """
