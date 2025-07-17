@@ -10,3 +10,7 @@ langchain_chroma
 langchain_community
 langchain
 langchain_core
+langchain_text_splitters
+data_loader
+datetime
+reportlab
