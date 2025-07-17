@@ -20,7 +20,7 @@ if 'bot' not in st.session_state:
         st.error(f"초기화 오류: {e}.")
         st.stop()
 
-st.title("우울증 자가 진단 챗봇 🌿")
+st.title("우울증 자가 진단 챗봇 🌟")
 st.markdown("안녕하세요. 당신의 마음 상태를 이해하고 도움을 드리기 위해 몇 가지 질문을 시작하겠습니다.")
 
 # --- 단계별 UI 분기 처리 ---
@@ -86,11 +86,33 @@ if st.session_state.phase == "screening_questions":
 # 3단계: 서술형/일기 입력
 if st.session_state.phase == "narrative_input":
     if prompt := st.chat_input("여기에 자유롭게 작성해주세요..."):
+        # 1. 서술형 답변을 user_data에 저장
         st.session_state.user_data["서술형 답변"] = prompt
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
 
+        # --- 2. 서술형 답변 점수 분석 및 반영 (수정된 부분) ---
+        with st.spinner("답변을 분석하여 점수에 반영하고 있어요..."):
+            # 질문 총점 기록
+            st.session_state.user_data["질문 총점"] = st.session_state.bot.score
+
+            # 서술형 답변 분석 및 점수 획득
+            narrative_score_result = st.session_state.bot.score_narrative_answer(prompt)
+            narrative_points = narrative_score_result.get("points", 0)
+            narrative_reason = narrative_score_result.get("reason", "")
+            
+            # 서술형 점수와 이유를 user_data에 저장
+            st.session_state.user_data["서술형 점수"] = narrative_points
+            
+            # 챗봇의 총점에 추가
+            st.session_state.bot.score += narrative_points
+
+        # 분석 결과를 사용자에게 보여줌
+        with st.expander("서술형 답변 분석 결과 보기"):
+            st.info(f"분석 결과: {narrative_reason} ({narrative_points}점 추가, 현재 총점: {st.session_state.bot.score}점)")
+        
+        # 3. 최종 분석 단계로 전환
         st.session_state.phase = "final_analysis"
         st.rerun()
 
@@ -98,11 +120,20 @@ if st.session_state.phase == "narrative_input":
 if st.session_state.phase == "final_analysis":
     with st.chat_message("assistant"):
         with st.spinner("모든 정보를 바탕으로 맞춤형 분석을 진행하고 있습니다..."):
-            final_report = st.session_state.bot.generate_final_analysis(
+            # 1. 모델로부터 헤더와 본문을 분리해서 받음 (수정)
+            report_header, report_body = st.session_state.bot.generate_final_analysis(
                 st.session_state.user_data
-            )
-            st.session_state.messages.append({"role": "assistant", "content": final_report})
-            st.markdown(final_report)
+                )
+
+            # 2. 대화 기록에는 전체 내용을 합쳐서 저장 (수정)
+            final_report_for_history = report_header + report_body
+            st.session_state.messages.append({"role": "assistant", "content": final_report_for_history})
+
+            # 3. 화면에는 분리해서 출력 (수정)
+            # HTML 헤더 출력
+            st.markdown(report_header, unsafe_allow_html=True)
+            # Markdown 본문 출력
+            st.markdown(report_body)
     st.session_state.phase = "finished"
 
 # 5단계: 종료
@@ -110,7 +141,7 @@ if st.session_state.phase == "finished":
     st.info("상담이 종료되었습니다. 이 내용이 마음에 조금이나마 도움이 되었기를 바랍니다.")
 
     # PDF 생성 및 다운로드 기능 추가
-    if st.button("진단 결과서 PDF로 다운로드"):
+    if st.button("진단 결과서 PDF 문서화 생성"):
         with st.spinner("PDF 보고서를 생성하고 있습니다..."):
             try:
                 # 1. 보고서 데이터 요약

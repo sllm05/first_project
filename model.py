@@ -30,7 +30,7 @@ class EmotionBasedPsychotherapy:
 
             # --- 모든 LLM 호출을 담당할 ChatUpstage 객체 생성 ---
         self.llm = ChatUpstage(model="solar-mini")
-
+    # PHQ-9(Patient Health Questionnaire-9) 우울증 자가 진단 도구
         self.all_questions = [
             "일상적인 활동에 대한 흥미나 즐거움이 많이 줄어들었나요?",
             "기분이 가라앉거나 우울하고 절망적인 느낌이 들었나요?",
@@ -45,14 +45,6 @@ class EmotionBasedPsychotherapy:
         self.screening_questions = random.sample(self.all_questions, 5)
         self.total_questions = len(self.screening_questions)
 
-        self.emotion_levels = {
-            '위험': ['불안', '분노', '슬픔'],
-            '보통': ['당황', '상처'],
-            '정상': ['기쁨']
-        }
-        self.emotion_scores = {'위험': 3, '보통': 1, '정상': 0}
-
-        # --- 기존 RAG 체인 삭제, 정보 검색 체인으로 대체 ---
         qa_system_prompt = """당신은 우울증 전문가입니다. 검색된 컨텍스트 정보를 사용하여 질문에 답변하세요. 답변은 한국어로, 세 문장 이내로 간결하게 유지하세요.
         {context}"""
         qa_prompt = ChatPromptTemplate.from_messages([("system", qa_system_prompt), ("human", "{input}")])
@@ -60,27 +52,50 @@ class EmotionBasedPsychotherapy:
         self.rag_chain = create_retrieval_chain(self.md_retriever, Youtube_chain)
 
     def generate_final_analysis(self, user_data):
-        # 1. 종합적인 정보 요약
+        # --- 1. 점수 기반으로 진단명 결정 (수정된 부분) ---
+        score = self.score
+        if score >= 12:
+            diagnosis_title = "중증 우울증"
+        elif 8 <= score <= 11:
+            diagnosis_title = "초기 우울증"
+        elif 4 <= score <= 7:
+            diagnosis_title = "가벼운 우울 증상"
+        else:
+            diagnosis_title = "우울감 없음"
+        
+        # --- 2. 진단명을 중앙에 표시하는 헤더 생성 (수정된 부분) ---
+        report_header = f"""
+        <div style="text-align: center; margin-bottom: 20px;">
+            <h2>진단 결과</h2>
+            <h1 style="color: #D20A0A;">{diagnosis_title}</h1>
+        </div>
+
+        ---
+        """
+
+        # 3. 종합적인 정보 요약
         user_summary = f"""
         - 사용자: {user_data.get('나이')}세 {user_data.get('성별')}, 이름: {user_data.get('이름')}
         - 과거 병력: {user_data.get('과거 병력', '없음')}
         - 주요 증상: {user_data.get('주요 증상')}
-        - 5가지 질문 평가 점수: {self.score} 점
+        - 5가지 질문 평가 점수: {user_data.get('질문 총점')} 점
+        - 서술형 답변 점수: {user_data.get('서술형 점수')} 점
+        - 최종 총점: {self.score} 점
         - 사용자의 서술: {user_data.get('서술형 답변')}
         """
 
-        # 2. 요약된 정보를 바탕으로 RAG 시스템에 던질 핵심 질문 생성
-        # 이 단계는 LLM을 한번 더 써서 만들 수도 있지만, 여기서는 간단한 템플릿 사용
+        # 4. RAG를 위한 핵심 질문 생성
         main_query = f"{user_data.get('주요 증상')}과 {user_data.get('서술형 답변')} 내용을 겪는 {user_data.get('나이')}세 사용자를 위한 우울증 관리 방법, 원인, 치료법, 지원 체계를 알려줘."
 
-        # 3. RAG로 depression.md에서 관련 정보 검색
+        # 5. RAG로 depression.md에서 관련 정보 검색
         rag_context = self.rag_chain.invoke({"input": main_query})
         retrieved_info = "\n".join([doc.page_content for doc in rag_context['context']])
 
-        # 4. 최종 답변 생성
+        # 6. 최종 답변 생성을 위한 프롬프트
         final_prompt = f"""
         당신은 매우 공감 능력이 뛰어난 심리 상담 전문가입니다.
         아래 사용자 정보와 전문가의 분석 노트를 바탕으로, 사용자에게 전달할 최종 답변을 아래 지시사항에 따라 작성해주세요.
+        사용자의 진단명은 '{diagnosis_title}'입니다. 이 점을 고려하여 답변해주세요.
 
         ### 사용자 정보
         {user_summary}
@@ -92,35 +107,16 @@ class EmotionBasedPsychotherapy:
         1. **(지원 체계)**: 분석 노트를 참고하여, 사용자에게 도움이 될 만한 기관이나 지원 프로그램을 구체적으로 제시해주세요.
         2. **(관리 방법)**: 사용자가 일상에서 시도해볼 수 있는 현실적인 스트레스 및 우울감 관리 방법을 2-3가지 제안해주세요.
         3. **(원인 및 치료법)**: 사용자의 증상과 관련된 원인을 간단히 언급하고, 일반적인 치료 방법에 대해 희망적으로 설명해주세요.
-        4. **(긍정적이고 따뜻한 마무리)**: 모든 내용을 종합하여, 사용자의 노력을 인정하고 희망을 주는 매우 따뜻하고 진심 어린 응원 메시지로 마무리해주세요. (제목을 진심 어린 응원 메시지가 아니고 다른 좋은 말을 찾아봐)
+        4. **(마음의 메시지)**: 모든 내용을 종합하여, 사용자의 노력을 인정하고 희망을 주는 매우 따뜻하고 진심 어린 응원 메시지로 마무리해주세요.
 
-        위 4가지 항목을 각각 소제목으로 구분하여 자연스러운 문단으로 작성해주세요.
+        위 4가지 항목을 각각 소제목으로 구분하여 자연스러운 문단으로 작성해주세요. 진단명은 이미 맨 위에 표시되므로 본문에서는 언급하지 않아도 됩니다.
         """
 
         response = self.llm.invoke([HumanMessage(content=final_prompt)], model="solar-pro", temperature=0.7)
 
-        return response.content
+        # --- 7. 헤더와 생성된 답변을 합쳐서 최종 결과 반환 (수정된 부분) ---
+        return (report_header, response.content)
 
-
-    def get_emotion_level(self, emotion):
-        for level, emotions in self.emotion_levels.items():
-            if emotion in emotions:
-                return level
-        return '보통'
-
-    def _call_solar_for_emotion(self, text):
-        emotion_categories = ['불안', '분노', '슬픔', '상처', '당황', '기쁨']
-        messages = [
-            SystemMessage(content=f"너는 문장의 감정을 분석하는 전문가야. 다음 문장의 감정을 {emotion_categories} 중에서 하나만 골라. 다른 말은 하지마."),
-            HumanMessage(content=text)
-        ]
-        try:
-            response = self.llm.invoke(messages, temperature=0.0, max_tokens=10)
-            content = response.content.strip()
-            return content if content in emotion_categories else '상처'
-        except Exception as e:
-            print(f"API 호출 오류: {e}")
-            return '상처'
 
     # --- generate_empathetic_response_and_ask_question 수정 ---
     def generate_empathetic_response_and_ask_question(self, user_input):
@@ -207,42 +203,57 @@ class EmotionBasedPsychotherapy:
             print(f"점수 분석 중 오류 발생: {e}")
             self.question_index += 1
             return f"점수 분석 중 오류가 발생했습니다. (0점 처리, 현재 총점: {self.score}점)"
+        
+    def score_narrative_answer(self, narrative_text):
+        """서술형 답변을 분석하고 점수를 매기는 함수"""
+        
+        system_prompt = f"""
+        당신은 숙련된 심리 분석가입니다. 사용자의 자유 서술형 답변을 분석하고, 우울감 및 위험도의 심각성을 0점에서 3점 사이로 평가해주세요.
+        - 0점: 우울감이나 부정적 정서가 거의 드러나지 않음.
+        - 1점: 약간의 스트레스나 가벼운 우울감이 암시됨.
+        - 2점: 꽤 명확한 우울감, 무기력, 불안 등이 드러남.
+        - 3점: '자해', '자살', '죽음', '끝내고 싶다' 등 심리적으로 매우 심각하고 위험한 단어나 맥락이 포함됨.
+
+        반드시 아래와 같은 JSON 형식으로만 응답해야 합니다. 다른 설명은 절대 추가하지 마세요.
+        {{
+        "score": <평가 점수 (0-3)>,
+        "reason": "<왜 그렇게 평가했는지에 대한 간략한 한글 설명>"
+        }}
+        """
+        
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=f"사용자 답변: \"{narrative_text}\"")
+        ]
+
+        try:
+            response = self.llm.invoke(messages, model="solar-mini", temperature=0.1)
+            result = json.loads(response.content)
+            points = result.get("score", 0)
+            reason = result.get("reason", "분석 실패")
+            
+            # 사용자 데이터에 점수와 총점을 기록하기 위해 딕셔너리로 반환
+            return {"points": points, "reason": reason}
+
+        except Exception as e:
+            print(f"서술형 답변 점수 분석 중 오류 발생: {e}")
+            return {"points": 0, "reason": "점수 분석 중 오류가 발생했습니다."}
 
     def is_test_finished(self):
         return self.question_index >= self.total_questions
-
-    def display_final_result(self):
-        result_text = f"모든 질문이 완료되었습니다.\n\n**총점: {self.score}점**\n\n"
-        if self.score >= 10:
-            result_text += "🚨 **진단 결과: 우울증 위험** 🚨\n높은 수준의 우울감이 의심됩니다. 전문가의 도움이 필요할 수 있습니다."
-        elif self.score >= 5:
-            result_text += "💛 **진단 결과: 보통** 💛\n일상적인 스트레스나 가벼운 우울감을 겪고 계신 것 같습니다."
-        else:
-            result_text += "😄 **진단 결과: 정상** 😄\n"
-        return result_text
-
-    # --- 기존 RAG 함수들을 대체할 새로운 함수들 ---
-
-    def get_info_from_md(self, user_input):
-        """depression.md 파일에서 정보를 검색하여 답변하는 함수"""
-        if not self.rag_chain:
-            return "정보 검색 기능이 준비되지 않았습니다."
-
-        result = self.rag_chain.invoke({"input": user_input})
-        return result["answer"]
     
 
     def summarize_for_report(self, user_data, final_score):
         """점수 기반 진단 로직과 RAG를 활용하여 전문적인 PDF 보고서 내용을 생성하는 함수"""
 
         # 1. 점수 기준으로 기본 진단명 결정
-        if final_score >= 12:
+        if final_score >= 14:
             diagnosis_title = "중증 우울증"
-        elif 8 <= final_score <= 11:
-            diagnosis_title = "초기 우울증"
-        elif 4 <= final_score <= 7:
-            diagnosis_title = "가벼운 우울 증상"
-        else:  # 3점 이하
+        elif 10 <= final_score <= 13:
+            diagnosis_title = "중등도 우울증"
+        elif 6 <= final_score <= 9:
+            diagnosis_title = "경도 우울 증상"
+        else: 
             diagnosis_title = "우울감 없음"
 
         # 2. RAG를 통해 사용자의 증상과 관련된 전문 정보 검색
