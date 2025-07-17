@@ -54,11 +54,11 @@ class EmotionBasedPsychotherapy:
     def generate_final_analysis(self, user_data):
         # --- 1. 점수 기반으로 진단명 결정 (수정된 부분) ---
         score = self.score
-        if score >= 14:
+        if score >= 13:
             diagnosis_title = "중증 우울증"
-        elif 10 <= score <= 13:
+        elif 9 <= score <= 12:
             diagnosis_title = "초기 우울증"
-        elif 6 <= score <= 9:
+        elif 5 <= score <= 8:
             diagnosis_title = "가벼운 우울 증상"
         else:
             diagnosis_title = "우울감 없음"
