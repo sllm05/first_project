@@ -9,6 +9,7 @@ from langchain_upstage import UpstageEmbeddings
 from langchain_chroma import Chroma
 import streamlit as st
 
+
 def load_env():
     load_dotenv()
 
@@ -45,7 +46,7 @@ def load_markdown_retriever():
         raise FileNotFoundError(f"지정된 경로에 파일이 없습니다: {file_path}")
 
     # Markdown 문법 기준으로 텍스트 분할
-    markdown_splitter = MarkdownTextSplitter(chunk_size=300, chunk_overlap=30)
+    markdown_splitter = MarkdownTextSplitter(chunk_size=300, chunk_overlap=50)
     docs = markdown_splitter.split_documents(documents)
 
     # Upstage 임베딩과 Chroma DB를 사용하여 retriever 생성
