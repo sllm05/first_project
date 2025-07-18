@@ -13,7 +13,6 @@ st.set_page_config(page_title="우울하신가요?", page_icon="❤️", layout=
 if 'bot' not in st.session_state:
     try:
         load_env()
-        os.environ["UPSTAGE_API_KEY"] = st.secrets["UPSTAGE_API_KEY"]
         emotion_df = load_emotion_data()
         md_retriever = load_markdown_retriever()
         st.session_state.bot = EmotionBasedPsychotherapy(emotion_df, md_retriever)

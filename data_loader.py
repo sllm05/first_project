@@ -12,6 +12,8 @@ import streamlit as st
 
 def load_env():
     load_dotenv()
+    os.environ["UPSTAGE_API_KEY"] = st.secrets["UPSTAGE_API_KEY"]
+
 
 @st.cache_resource
 def load_emotion_data():
@@ -19,7 +21,7 @@ def load_emotion_data():
     지정된 경로에서 감성 대화 말뭉치 JSON 파일을 로드하여 Pandas DataFrame으로 반환합니다.
     """
     # 사용자 환경에 맞게 파일 경로를 수정해야 할 수 있습니다.
-    file_path = "data/감성대화말뭉치(최종데이터)_Training.json"
+    file_path = "data/감성대화말뭉치_최종데이터_Training.json"
 
     try:
         with open(file_path, "r", encoding='utf-8') as f:
