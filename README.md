@@ -41,10 +41,10 @@
    cd your-project-directory
 
 ### 2. 가상 환경 설정 및 패키지 설치 (Set up a virtual environment & Install packages)
-   # 가상환경 활성화 (권장)
+   - 가상환경 활성화 (권장)
    python activate (가상환경이름)
 
-   # 필요한 패키지 설치
+   - 필요한 패키지 설치
    pip install -r requirements.txt
 
 
